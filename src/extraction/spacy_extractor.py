@@ -231,7 +231,7 @@ class SpacyExtractor:
 
     def create_simple_extraction(self, entities: SpacyEntities, text: str):
         """Create extraction result for simple cases without LLM."""
-        from .interfaces import ExtractionResult, ExtractedEntity, ExtractedRelationship
+        from .interfaces import ExtractionResult, Entity, Relationship
 
         result_entities = []
         result_relationships = []
@@ -239,7 +239,7 @@ class SpacyExtractor:
         # Add organization entities
         for org in entities.organizations[:5]:  # Limit
             if len(org) > 2:  # Skip very short
-                result_entities.append(ExtractedEntity(
+                result_entities.append(Entity(
                     name=org,
                     entity_type="company",
                     confidence=0.75,  # Lower than LLM
@@ -248,7 +248,7 @@ class SpacyExtractor:
         # Add person entities
         for person in entities.people[:5]:
             if len(person) > 2:
-                result_entities.append(ExtractedEntity(
+                result_entities.append(Entity(
                     name=person,
                     entity_type="person",
                     confidence=0.75,
@@ -259,7 +259,7 @@ class SpacyExtractor:
             company = entities.organizations[0]
             amount = entities.amounts[0]
 
-            result_relationships.append(ExtractedRelationship(
+            result_relationships.append(Relationship(
                 subject=company,
                 subject_type="company",
                 predicate="FUNDED_BY",
@@ -267,14 +267,11 @@ class SpacyExtractor:
                 object_type="investor",
                 confidence=0.70,
                 context=f"{entities.round_type} round: ${amount:,.0f}",
-                metadata={"amount": amount, "round_type": entities.round_type},
             ))
 
         return ExtractionResult(
             entities=result_entities,
             relationships=result_relationships,
-            source_type="spacy_ner",
-            confidence=0.70,
         )
 
 
