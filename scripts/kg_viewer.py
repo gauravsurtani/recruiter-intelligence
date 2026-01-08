@@ -1737,11 +1737,13 @@ async def companies():
         score = 0
         signals = []
 
-        # Check for recent funding
+        # Check for recent funding (from news: FUNDED_BY, from SEC: RAISED_FUNDING)
         funding_rels = kg.query(subject=company.name, predicate="FUNDED_BY", limit=10)
-        if funding_rels:
+        sec_funding_rels = kg.query(subject=company.name, predicate="RAISED_FUNDING", limit=10)
+        total_funding = len(funding_rels) + len(sec_funding_rels)
+        if total_funding > 0:
             score += 30
-            signals.append(f"Funded ({len(funding_rels)}x)")
+            signals.append(f"Funded ({total_funding}x)")
 
         # Check for acquisitions (company is acquiring)
         acq_rels = kg.query(subject=company.name, predicate="ACQUIRED", limit=10)
@@ -1863,13 +1865,18 @@ async def candidates():
                 score += 20
                 signals.append("At company with layoffs")
 
-        # Check for executive roles
+        # Check for executive roles (from news: CEO_OF etc, from SEC: OFFICER_OF)
         exec_rels = kg.query(subject=person.name, limit=20)
+        is_executive = False
         for rel in exec_rels:
-            if rel.predicate in ['CEO_OF', 'CTO_OF', 'CFO_OF', 'FOUNDED']:
-                score += 30
-                signals.append("Executive")
+            if rel.predicate in ['CEO_OF', 'CTO_OF', 'CFO_OF', 'FOUNDED', 'OFFICER_OF']:
+                is_executive = True
+                if not current_company and rel.predicate == 'OFFICER_OF':
+                    current_company = rel.object.name
                 break
+        if is_executive:
+            score += 30
+            signals.append("Executive")
 
         if score > 0:
             scored_candidates.append({
