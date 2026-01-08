@@ -220,6 +220,50 @@ class FormDFetcher:
 
         return None
 
+    def _clean_entity_name(self, name: str) -> str:
+        """Clean up entity name by removing placeholder prefixes and fixing common issues."""
+        if not name:
+            return name
+        # Remove common placeholder prefixes
+        prefixes_to_remove = ['N/A ', 'n/a ', '--- ', '[none] ', '. ', '- ', '-- ']
+        for prefix in prefixes_to_remove:
+            if name.startswith(prefix):
+                name = name[len(prefix):]
+
+        # Fix "LLC CompanyName" -> "CompanyName LLC"
+        if name.upper().startswith('LLC '):
+            name = name[4:] + ' LLC'
+
+        return name.strip()
+
+    def _is_organization_name(self, name: str) -> bool:
+        """Detect if a name is an organization rather than a person."""
+        if not name:
+            return False
+        name_upper = name.upper()
+        # Organization suffixes
+        org_indicators = [
+            'LLC', 'L.L.C.', 'INC', 'INC.', 'CORP', 'CORP.', 'LTD', 'LTD.',
+            'L.P.', 'LP', 'LIMITED', 'PARTNERS', 'PARTNERSHIP', 'FUND',
+            'CAPITAL', 'VENTURES', 'MANAGEMENT', 'ADVISORS', 'HOLDINGS',
+            'TRUST', 'REIT', 'GROUP', 'COMPANY', 'CO.', 'SARL', 'S.A.'
+        ]
+        for indicator in org_indicators:
+            if indicator in name_upper:
+                return True
+        # Names starting with organization-like patterns
+        if name_upper.startswith(('LLC ', 'THE ')):
+            return True
+        return False
+
+    def _extract_underlying_company(self, name: str) -> Optional[str]:
+        """Extract underlying company from SPV name like 'SpaceX Dec 2025 a Series of...'"""
+        # Pattern: "CompanyName ... a Series of ..."
+        match = re.match(r'^([A-Za-z0-9\s]+?)(?:\s+(?:Dec|Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov)\s+\d{4})?\s+a\s+[Ss]eries\s+of', name)
+        if match:
+            return match.group(1).strip()
+        return None
+
     def to_extraction_result(self, filing: FormDFiling):
         """Convert Form D filing to extraction result for knowledge graph."""
         from ..extraction.interfaces import ExtractionResult, Entity, Relationship
@@ -227,9 +271,12 @@ class FormDFetcher:
         entities = []
         relationships = []
 
+        # Clean company name
+        clean_company_name = self._clean_entity_name(filing.company_name)
+
         # Company entity
         company = Entity(
-            name=filing.company_name,
+            name=clean_company_name,
             entity_type="company",
             confidence=0.95,  # High confidence - legal filing
             attributes={
@@ -241,42 +288,67 @@ class FormDFetcher:
         )
         entities.append(company)
 
+        # Check if this is an SPV - extract underlying company
+        underlying = self._extract_underlying_company(clean_company_name)
+        if underlying and underlying != clean_company_name:
+            entities.append(Entity(
+                name=underlying,
+                entity_type="company",
+                confidence=0.75,  # Lower confidence - inferred
+                attributes={"source": "extracted_from_spv"}
+            ))
+
         # Officer/Director entities
         for officer in filing.officers:
-            if officer.get('name'):
-                person = Entity(
-                    name=officer['name'],
-                    entity_type="person",
-                    confidence=0.95,
-                    attributes={
-                        "title": officer.get('title'),
-                        "role": officer.get('relationship'),
-                    }
-                )
-                entities.append(person)
+            raw_name = officer.get('name', '')
+            if not raw_name:
+                continue
 
-                # Add relationship
-                if 'Director' in str(officer.get('relationship', [])):
-                    rel_type = "DIRECTOR_OF"
-                elif 'Executive' in str(officer.get('relationship', [])):
-                    rel_type = "EXECUTIVE_OF"
-                else:
-                    rel_type = "OFFICER_OF"
+            # Clean the name
+            clean_name = self._clean_entity_name(raw_name)
+            if not clean_name:
+                continue
 
-                relationships.append(Relationship(
-                    subject=officer['name'],
-                    subject_type="person",
-                    predicate=rel_type,
-                    object=filing.company_name,
-                    object_type="company",
-                    confidence=0.95,
-                    context=f"SEC Form D filing {filing.file_number}",
-                ))
+            # Determine if this is a person or organization
+            is_org = self._is_organization_name(clean_name)
+            entity_type = "company" if is_org else "person"
+
+            person = Entity(
+                name=clean_name,
+                entity_type=entity_type,
+                confidence=0.95,
+                attributes={
+                    "title": officer.get('title'),
+                    "role": officer.get('relationship'),
+                }
+            )
+            entities.append(person)
+
+            # Add relationship
+            if 'Director' in str(officer.get('relationship', [])):
+                rel_type = "DIRECTOR_OF"
+            elif 'Executive' in str(officer.get('relationship', [])):
+                rel_type = "EXECUTIVE_OF"
+            else:
+                rel_type = "OFFICER_OF"
+
+            relationships.append(Relationship(
+                subject=clean_name,
+                subject_type=entity_type,
+                predicate=rel_type,
+                object=clean_company_name,
+                object_type="company",
+                confidence=0.95,
+                context=f"SEC Form D filing {filing.file_number}",
+            ))
 
         # Funding relationship (if amount disclosed)
         if filing.total_amount and filing.total_amount > 0:
+            # Use underlying company if extracted from SPV, otherwise use the filing company
+            funding_company = underlying if underlying else clean_company_name
+
             relationships.append(Relationship(
-                subject=filing.company_name,
+                subject=funding_company,
                 subject_type="company",
                 predicate="RAISED_FUNDING",
                 object="Undisclosed Investors",  # Form D doesn't list specific investors
