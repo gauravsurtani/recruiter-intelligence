@@ -1,0 +1,37 @@
+entity_extraction:
+  system: |
+    You are an expert at extracting structured information from news articles.
+    Extract entities (companies, people, amounts) and their relationships.
+    Be precise and only extract information explicitly stated in the text.
+
+  user: |
+    Extract entities and relationships from this article:
+
+    Title: {title}
+    Content: {content}
+
+    Return JSON with this structure:
+    {
+      "entities": [
+        {"name": "...", "type": "company|person|investor", "attributes": {...}}
+      ],
+      "relationships": [
+        {"subject": "...", "predicate": "ACQUIRED|HIRED_BY|FUNDED_BY|DEPARTED_FROM", "object": "...", "context": "..."}
+      ],
+      "event_type": "acquisition|funding|executive_move|layoff|ipo|other",
+      "confidence": 0.0-1.0
+    }
+
+relationship_validation:
+  system: |
+    You verify extracted relationships against source text.
+    Return whether each relationship is CONFIRMED, UNCERTAIN, or INCORRECT.
+
+  user: |
+    Source text: {text}
+
+    Relationships to verify:
+    {relationships}
+
+    For each relationship, return:
+    {"relationship_id": "...", "status": "CONFIRMED|UNCERTAIN|INCORRECT", "reason": "..."}

@@ -1,0 +1,154 @@
+{
+  "feeds": [
+    {
+      "name": "Crunchbase News",
+      "url": "https://news.crunchbase.com/feed/",
+      "priority": 0,
+      "event_types": ["funding", "acquisition", "ipo", "layoff"]
+    },
+    {
+      "name": "TechCrunch",
+      "url": "https://techcrunch.com/feed/",
+      "priority": 0,
+      "event_types": ["funding", "acquisition", "startup"]
+    },
+    {
+      "name": "VentureBeat",
+      "url": "https://feeds.feedburner.com/venturebeat/SZYF",
+      "priority": 0,
+      "event_types": ["funding", "acquisition", "ai"]
+    },
+    {
+      "name": "TechMeme",
+      "url": "https://www.techmeme.com/feed.xml",
+      "priority": 0,
+      "event_types": ["acquisition", "funding", "executive_move"]
+    },
+    {
+      "name": "SEC EDGAR 8-K",
+      "url": "https://www.sec.gov/cgi-bin/browse-edgar?action=getcurrent&type=8-K&output=atom",
+      "priority": 1,
+      "event_types": ["acquisition", "executive_move", "material_event"]
+    },
+    {
+      "name": "Yahoo Finance Tech",
+      "url": "https://finance.yahoo.com/news/rssindex",
+      "priority": 2,
+      "event_types": ["funding", "acquisition", "earnings"]
+    },
+    {
+      "name": "Fortune",
+      "url": "https://fortune.com/feed/",
+      "priority": 1,
+      "event_types": ["executive_move", "acquisition"]
+    },
+    {
+      "name": "Business Insider",
+      "url": "https://www.businessinsider.com/sai/rss",
+      "priority": 1,
+      "event_types": ["executive_move", "acquisition", "startup"]
+    },
+    {
+      "name": "Reuters Business",
+      "url": "https://feeds.reuters.com/reuters/businessNews",
+      "priority": 1,
+      "event_types": ["acquisition", "funding", "executive_move"]
+    },
+    {
+      "name": "Hacker News",
+      "url": "https://news.ycombinator.com/rss",
+      "priority": 2,
+      "event_types": ["startup", "funding", "acquisition"]
+    },
+    {
+      "name": "GeekWire",
+      "url": "https://www.geekwire.com/feed/",
+      "priority": 0,
+      "event_types": ["funding", "startup", "executive_move", "acquisition"]
+    },
+    {
+      "name": "SiliconANGLE",
+      "url": "https://siliconangle.com/feed/",
+      "priority": 1,
+      "event_types": ["funding", "acquisition", "ai"]
+    },
+    {
+      "name": "Wired Business",
+      "url": "https://www.wired.com/feed/category/business/latest/rss",
+      "priority": 1,
+      "event_types": ["acquisition", "funding", "startup"]
+    },
+    {
+      "name": "The Verge Tech",
+      "url": "https://www.theverge.com/rss/index.xml",
+      "priority": 1,
+      "event_types": ["acquisition", "funding", "layoff"]
+    },
+    {
+      "name": "Axios",
+      "url": "https://api.axios.com/feed/",
+      "priority": 0,
+      "event_types": ["funding", "acquisition", "executive_move"]
+    },
+    {
+      "name": "PR Newswire Tech",
+      "url": "https://www.prnewswire.com/rss/technology-latest-news/technology-latest-news-list.rss",
+      "priority": 1,
+      "event_types": ["funding", "acquisition", "executive_move", "partnership"]
+    },
+    {
+      "name": "Business Wire",
+      "url": "https://feed.businesswire.com/rss/home/?rss=G1QFDERJXkJeGVtTWg==",
+      "priority": 1,
+      "event_types": ["funding", "acquisition", "executive_move"]
+    },
+    {
+      "name": "Bloomberg Tech",
+      "url": "https://feeds.bloomberg.com/technology/news.rss",
+      "priority": 0,
+      "event_types": ["acquisition", "funding", "executive_move", "layoff"]
+    },
+    {
+      "name": "Forbes Tech",
+      "url": "https://www.forbes.com/innovation/feed/",
+      "priority": 1,
+      "event_types": ["funding", "acquisition", "executive_move"]
+    },
+    {
+      "name": "Inc Magazine",
+      "url": "https://www.inc.com/rss/",
+      "priority": 1,
+      "event_types": ["funding", "startup", "executive_move"]
+    },
+    {
+      "name": "Fast Company",
+      "url": "https://www.fastcompany.com/latest/rss",
+      "priority": 1,
+      "event_types": ["startup", "executive_move", "acquisition"]
+    },
+    {
+      "name": "WSJ Tech",
+      "url": "https://feeds.a.dj.com/rss/RSSWSJD.xml",
+      "priority": 0,
+      "event_types": ["acquisition", "funding", "executive_move", "ipo"]
+    },
+    {
+      "name": "Ars Technica",
+      "url": "https://feeds.arstechnica.com/arstechnica/technology-lab",
+      "priority": 2,
+      "event_types": ["acquisition", "funding"]
+    },
+    {
+      "name": "Protocol",
+      "url": "https://www.protocol.com/feeds/feed.rss",
+      "priority": 1,
+      "event_types": ["funding", "acquisition", "executive_move", "layoff"]
+    }
+  ],
+  "settings": {
+    "default_fetch_interval_minutes": 60,
+    "rate_limit_requests_per_second": 2,
+    "max_retries": 3,
+    "timeout_seconds": 30
+  }
+}
