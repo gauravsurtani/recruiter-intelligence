@@ -3,10 +3,12 @@
 
 import sys
 import json
+import time
 from pathlib import Path
 from datetime import date, timedelta, datetime
 from collections import defaultdict
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
+from functools import lru_cache
 
 # Add project root to path
 project_root = Path(__file__).parent.parent
@@ -21,6 +23,29 @@ from src.config.feed_manager import FeedManager
 from src.newsletter.generator import NewsletterGenerator
 
 app = FastAPI(title="Recruiter Intelligence")
+
+# ===== CACHING LAYER =====
+# Cache expensive queries for 5 minutes to reduce database load
+_cache: Dict[str, Any] = {}
+_cache_timestamps: Dict[str, float] = {}
+CACHE_TTL = 300  # 5 minutes
+
+def get_cached(key: str, fetch_fn, ttl: int = CACHE_TTL):
+    """Get cached value or fetch and cache it."""
+    now = time.time()
+    if key in _cache and (now - _cache_timestamps.get(key, 0)) < ttl:
+        return _cache[key]
+
+    value = fetch_fn()
+    _cache[key] = value
+    _cache_timestamps[key] = now
+    return value
+
+def clear_cache():
+    """Clear all cached data."""
+    global _cache, _cache_timestamps
+    _cache = {}
+    _cache_timestamps = {}
 
 # Pipeline state file for tracking last run
 PIPELINE_STATE_FILE = Path(__file__).parent / '.pipeline_state.json'
@@ -789,15 +814,16 @@ async def dashboard():
     kg = get_kg()
     storage = get_storage()
 
-    stats = kg.get_stats()
-    db_stats = storage.get_stats()
-    enr_stats = get_enrichment_stats(kg)
+    # Use caching for all expensive queries
+    stats = get_cached("kg_stats", kg.get_stats)
+    db_stats = get_cached("db_stats", storage.get_stats)
+    enr_stats = get_cached("enr_stats", lambda: get_enrichment_stats(kg))
 
-    # Get recent data
-    acquisitions = kg.query(predicate="ACQUIRED", limit=5)
-    funding = kg.query(predicate="FUNDED_BY", limit=5)
-    hires = kg.query(predicate="HIRED_BY", limit=5)
-    departures = kg.query(predicate="DEPARTED_FROM", limit=5)
+    # Get recent data (cached)
+    acquisitions = get_cached("recent_acquisitions", lambda: kg.query(predicate="ACQUIRED", limit=5))
+    funding = get_cached("recent_funding", lambda: kg.query(predicate="FUNDED_BY", limit=5))
+    hires = get_cached("recent_hires", lambda: kg.query(predicate="HIRED_BY", limit=5))
+    departures = get_cached("recent_departures", lambda: kg.query(predicate="DEPARTED_FROM", limit=5))
 
     # Calculate enrichment color
     enr_color = "var(--success)" if enr_stats['coverage'] > 50 else ("var(--warning)" if enr_stats['coverage'] > 20 else "var(--gray-500)")
@@ -1876,32 +1902,23 @@ async def relationships(predicate: str = Query(None)):
     return render(content, active='relationships', title_suffix='Relationships')
 
 
-@app.get("/companies", response_class=HTMLResponse)
-async def companies():
-    """High-value companies view for recruiters - filtered for real tech companies."""
-    kg = get_kg()
-    import urllib.parse
-
-    # Get filtered companies (excludes investment vehicles/SPVs)
+def _compute_scored_companies(kg):
+    """Compute scored companies (expensive - cached)."""
     real_companies = get_real_tech_companies(kg)
 
-    # Score companies based on recruiting signals
     scored_companies = []
     for company, has_news in real_companies:
         score = 0
         signals = []
         source_type = 'news' if has_news else 'sec'
 
-        # BOOST: Companies with news coverage are more valuable
         if has_news:
             score += 20
             signals.append("In News")
 
-        # Check for recent funding (from news: FUNDED_BY, from SEC: RAISED_FUNDING)
         funding_rels = kg.query(subject=company.name, predicate="FUNDED_BY", limit=10)
         sec_funding_rels = kg.query(subject=company.name, predicate="RAISED_FUNDING", limit=10)
 
-        # News funding is more valuable than SEC-only
         if funding_rels:
             score += 35
             signals.append(f"Funded (News)")
@@ -1909,37 +1926,31 @@ async def companies():
             score += 25
             signals.append(f"Funded (SEC)")
 
-        # Check for acquisitions (company is acquiring)
         acq_rels = kg.query(subject=company.name, predicate="ACQUIRED", limit=10)
         if acq_rels:
             score += 30
             signals.append(f"Acquiring ({len(acq_rels)}x)")
 
-        # Check for being acquired (uncertainty)
         acquired_rels = kg.query(obj=company.name, predicate="ACQUIRED", limit=10)
         if acquired_rels:
             score += 20
             signals.append("Was acquired")
 
-        # Check for hires (active hiring)
         hire_rels = kg.query(obj=company.name, predicate="HIRED_BY", limit=20)
         if hire_rels:
             score += len(hire_rels) * 3
             signals.append(f"Hiring ({len(hire_rels)} recent)")
 
-        # Check for departures (backfill opportunities)
         depart_rels = kg.query(obj=company.name, predicate="DEPARTED_FROM", limit=10)
         if depart_rels:
             score += len(depart_rels) * 4
             signals.append(f"Departures ({len(depart_rels)})")
 
-        # Check for layoffs (restructuring)
         layoff_rels = kg.query(subject=company.name, predicate="LAID_OFF", limit=5)
         if layoff_rels:
             score += 15
             signals.append("Layoffs")
 
-        # Only include companies with some signal
         if score > 0:
             scored_companies.append({
                 'company': company,
@@ -1948,12 +1959,28 @@ async def companies():
                 'source_type': source_type
             })
 
-    # Sort by score
     scored_companies.sort(key=lambda x: x['score'], reverse=True)
 
-    # Stats for header
     total_companies = len(kg.search_entities('', entity_type='company'))
-    filtered_count = len(real_companies)
+
+    return {
+        'scored': scored_companies,
+        'total': total_companies,
+        'filtered': len(real_companies)
+    }
+
+
+@app.get("/companies", response_class=HTMLResponse)
+async def companies():
+    """High-value companies view for recruiters - filtered for real tech companies."""
+    kg = get_kg()
+    import urllib.parse
+
+    # Use cached computed data (expensive computation)
+    data = get_cached("companies_data", lambda: _compute_scored_companies(kg), ttl=600)  # 10 min cache
+    scored_companies = data['scored']
+    total_companies = data['total']
+    filtered_count = data['filtered']
     with_signals = len(scored_companies)
 
     content = f"""
@@ -2001,26 +2028,18 @@ async def companies():
     return render(content, active='companies', title_suffix='High-Value Companies')
 
 
-@app.get("/candidates", response_class=HTMLResponse)
-async def candidates():
-    """High-value candidates view - founders, executives, and underdogs at startups."""
-    kg = get_kg()
-    import urllib.parse
-
-    # Get all people
+def _compute_scored_candidates(kg):
+    """Compute scored candidates (expensive - cached)."""
     all_people = kg.search_entities('', entity_type='person')
 
-    # Filter and score candidates
     scored_candidates = []
     for person in all_people:
-        # Skip obviously bad names
         if not person.name or len(person.name) < 3:
             continue
 
-        # Skip AI model names and obviously wrong extractions
         bad_patterns = ['gpt-', 'claude ', 'gemini ', 'llama ', 'mistral ',
-                       'donald trump', 'joe biden', 'barack obama', 'elon musk',  # Celebrities often misextracted
-                       'venezuela', 'colombia', 'ministry']  # Country/govt misextractions
+                       'donald trump', 'joe biden', 'barack obama', 'elon musk',
+                       'venezuela', 'colombia', 'ministry']
         if any(x in person.name.lower() for x in bad_patterns):
             continue
 
@@ -2030,25 +2049,22 @@ async def candidates():
         role = None
         is_from_news = False
 
-        # Check all relationships for this person
         all_rels = kg.query(subject=person.name, limit=30)
 
         for rel in all_rels:
             obj_name = rel.object.name if hasattr(rel.object, 'name') else str(rel.object)
             context = getattr(rel, 'context', '') or ''
 
-            # Skip if company is an investment vehicle
             if is_investment_vehicle(obj_name):
                 continue
 
             if rel.predicate == 'FOUNDED':
-                score += 50  # Founders are highest value
+                score += 50
                 signals.append("Founder")
                 current_company = obj_name
                 role = "Founder"
                 if 'Form D' not in context:
                     is_from_news = True
-
             elif rel.predicate == 'CEO_OF':
                 score += 45
                 signals.append("CEO")
@@ -2056,7 +2072,6 @@ async def candidates():
                 role = "CEO"
                 if 'Form D' not in context:
                     is_from_news = True
-
             elif rel.predicate in ['CTO_OF', 'CFO_OF']:
                 score += 40
                 signals.append(rel.predicate.replace('_OF', ''))
@@ -2064,60 +2079,62 @@ async def candidates():
                 role = rel.predicate.replace('_OF', '')
                 if 'Form D' not in context:
                     is_from_news = True
-
             elif rel.predicate == 'OFFICER_OF':
-                if score < 25:  # Don't overwrite better roles
+                if score < 25:
                     score += 25
                     signals.append("Officer/Director")
                     current_company = obj_name
                     role = "Officer"
-
             elif rel.predicate == 'EXECUTIVE_OF':
                 if score < 35:
                     score += 35
                     signals.append("Executive")
                     current_company = obj_name
                     role = "Executive"
-
             elif rel.predicate == 'DIRECTOR_OF':
                 if score < 20:
                     score += 20
                     signals.append("Director")
                     current_company = obj_name
                     role = "Director"
-
             elif rel.predicate == 'DEPARTED_FROM':
-                score += 30  # Availability signal
+                score += 30
                 signals.append(f"Left {obj_name}")
-
             elif rel.predicate == 'HIRED_BY':
                 if not current_company:
                     current_company = obj_name
                 score += 10
                 signals.append("Recently hired")
 
-        # Boost for news coverage (more visible/notable people)
         if is_from_news:
             score += 15
             if "In News" not in signals:
                 signals.append("In News")
 
-        # Only include if they have some signal
         if score > 0 and current_company:
             scored_candidates.append({
                 'person': person,
                 'score': score,
-                'signals': list(set(signals)),  # Dedupe
+                'signals': list(set(signals)),
                 'current_company': current_company,
                 'role': role,
                 'is_from_news': is_from_news
             })
 
-    # Sort by score
     scored_candidates.sort(key=lambda x: x['score'], reverse=True)
+    return {'scored': scored_candidates, 'total': len(all_people)}
 
-    # Stats
-    total_people = len(all_people)
+
+@app.get("/candidates", response_class=HTMLResponse)
+async def candidates():
+    """High-value candidates view - founders, executives, and underdogs at startups."""
+    kg = get_kg()
+    import urllib.parse
+
+    # Use cached computed data (expensive computation)
+    data = get_cached("candidates_data", lambda: _compute_scored_candidates(kg), ttl=600)  # 10 min cache
+    scored_candidates = data['scored']
+    total_people = data['total']
     with_signals = len(scored_candidates)
 
     content = f"""
