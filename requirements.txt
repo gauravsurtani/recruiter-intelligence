@@ -38,7 +38,7 @@ uvicorn>=0.27.0
 
 # Enhanced data sources
 edgartools>=0.20.0  # SEC EDGAR Form D API
-gdeltPyR>=1.0.0     # GDELT news API
+# gdeltPyR - removed, package not on PyPI
 
 # NER & Text Processing
 spacy>=3.7.0        # Fast NER extraction
