@@ -105,6 +105,32 @@ class ArticleStorage(StorageInterface):
         finally:
             session.close()
 
+    def mark_extracted(self, article_id: int) -> None:
+        """Mark article as extracted (LLM extraction completed)."""
+        session = self.Session()
+        try:
+            model = session.query(RawArticleModel).get(article_id)
+            if model:
+                model.extracted = True
+                session.commit()
+                logger.debug("article_extracted", id=article_id)
+        finally:
+            session.close()
+
+    def get_unextracted_high_signal(self, limit: int = 100) -> List[RawArticle]:
+        """Get high-signal articles that haven't been extracted yet."""
+        session = self.Session()
+        try:
+            models = session.query(RawArticleModel)\
+                .filter(RawArticleModel.is_high_signal == True)\
+                .filter(RawArticleModel.extracted == False)\
+                .order_by(RawArticleModel.published_at.desc())\
+                .limit(limit)\
+                .all()
+            return [self._model_to_article(m) for m in models]
+        finally:
+            session.close()
+
     def get_by_url(self, url: str) -> Optional[RawArticle]:
         """Get article by URL."""
         session = self.Session()

@@ -1,0 +1,122 @@
+# Recruiter Intelligence - Scheduled Pipeline
+# Runs every 6 hours to fetch and process articles
+# Cost: FREE (GitHub Actions)
+
+name: Pipeline
+
+on:
+  schedule:
+    # Run every 6 hours: midnight, 6am, noon, 6pm UTC
+    - cron: '0 0,6,12,18 * * *'
+
+  # Allow manual trigger from GitHub UI
+  workflow_dispatch:
+    inputs:
+      max_articles:
+        description: 'Max articles to process'
+        default: '200'
+        type: string
+
+jobs:
+  fetch-and-process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          RI_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          ENABLE_FORM_D: 'true'
+          ENABLE_LAYOFFS: 'true'
+          ENABLE_YC: 'true'
+          MAX_ARTICLES_PER_RUN: ${{ inputs.max_articles || '200' }}
+        run: |
+          python -c "
+          import asyncio
+          import os
+          import sys
+          sys.path.insert(0, '.')
+
+          from src.storage.factory import get_article_storage, get_knowledge_graph
+          from src.pipeline.daily import DailyPipeline
+
+          async def main():
+              print('=' * 60)
+              print('RECRUITER INTELLIGENCE - SCHEDULED PIPELINE')
+              print('=' * 60)
+
+              storage = get_article_storage()
+              kg = get_knowledge_graph()
+
+              # Get initial stats
+              stats = storage.get_stats()
+              print(f'Starting stats: {stats}')
+
+              # Create pipeline
+              pipeline = DailyPipeline(
+                  storage=storage,
+                  kg=kg,
+                  use_form_d=os.environ.get('ENABLE_FORM_D', 'true').lower() == 'true',
+                  use_gdelt=False,
+                  use_layoffs=os.environ.get('ENABLE_LAYOFFS', 'true').lower() == 'true',
+                  use_yc=os.environ.get('ENABLE_YC', 'true').lower() == 'true',
+              )
+
+              max_articles = int(os.environ.get('MAX_ARTICLES_PER_RUN', 200))
+
+              # Step 1: Fetch new articles
+              print('\\n[1/3] Fetching articles...')
+              articles = await pipeline._fetch(days_back=1)
+              saved = storage.save_articles(articles)
+              print(f'Fetched {len(articles)}, saved {saved} new articles')
+
+              # Step 2: Classify unprocessed
+              print('\\n[2/3] Classifying articles...')
+              unprocessed = storage.get_unprocessed(limit=max_articles)
+              if unprocessed:
+                  high_signal = pipeline._classify(unprocessed)
+                  print(f'Classified {len(unprocessed)}, {len(high_signal)} high-signal')
+              else:
+                  print('No unprocessed articles')
+
+              # Step 3: Extract high-signal articles
+              print('\\n[3/3] Extracting entities...')
+              to_extract = storage.get_unextracted_high_signal(limit=max_articles // 2)
+              if to_extract:
+                  extracted = await pipeline._extract(to_extract)
+                  print(f'Extracted {extracted} relationships')
+              else:
+                  print('No articles to extract')
+
+              # Final stats
+              final_stats = storage.get_stats()
+              kg_stats = kg.get_stats()
+
+              print('\\n' + '=' * 60)
+              print('PIPELINE COMPLETE')
+              print('=' * 60)
+              print(f'Articles: {final_stats[\"total_articles\"]}')
+              print(f'High-signal: {final_stats[\"high_signal_articles\"]}')
+              print(f'Entities: {kg_stats[\"total_entities\"]}')
+              print(f'Relationships: {kg_stats[\"total_relationships\"]}')
+
+          asyncio.run(main())
+          "
+
+      - name: Summary
+        run: |
+          echo "Pipeline completed at $(date)"

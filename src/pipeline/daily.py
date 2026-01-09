@@ -12,6 +12,7 @@ from ..ingestion.fetcher import RSSFetcher
 from ..storage.database import ArticleStorage
 from ..classification.classifier import KeywordClassifier
 from ..extraction.llm_extractor import LLMExtractor
+from ..extraction.validator import filter_extraction_results
 from ..knowledge_graph.graph import KnowledgeGraph
 from ..knowledge_graph.entity_resolver import EntityResolver
 from ..validation.source_validator import SourceValidator
@@ -42,6 +43,18 @@ try:
 except ImportError:
     GDELT_AVAILABLE = False
 
+try:
+    from ..ingestion.layoffs_scraper import LayoffsScraper
+    LAYOFFS_AVAILABLE = True
+except ImportError:
+    LAYOFFS_AVAILABLE = False
+
+try:
+    from ..ingestion.yc_scraper import YCScraper
+    YC_AVAILABLE = True
+except ImportError:
+    YC_AVAILABLE = False
+
 logger = structlog.get_logger()
 
 
@@ -54,8 +67,10 @@ class DailyPipeline:
         kg: KnowledgeGraph = None,
         use_form_d: bool = True,
         use_spacy: bool = True,
-        use_gdelt: bool = False,  # Off by default (supplementary)
+        use_gdelt: bool = True,  # Enabled for historical news
         use_cross_ref: bool = True,
+        use_layoffs: bool = True,  # Layoffs.fyi scraper
+        use_yc: bool = True,  # YC Company directory
     ):
         self.storage = storage or ArticleStorage()
         self.kg = kg or KnowledgeGraph()
@@ -73,6 +88,8 @@ class DailyPipeline:
         self.use_form_d = use_form_d and FORM_D_AVAILABLE
         self.use_gdelt = use_gdelt and GDELT_AVAILABLE
         self.use_cross_ref = use_cross_ref and CROSS_REF_AVAILABLE
+        self.use_layoffs = use_layoffs and LAYOFFS_AVAILABLE
+        self.use_yc = use_yc and YC_AVAILABLE
 
         logger.info(
             "pipeline_initialized",
@@ -80,6 +97,8 @@ class DailyPipeline:
             spacy=self.use_spacy,
             gdelt=self.use_gdelt,
             cross_ref=self.use_cross_ref,
+            layoffs=self.use_layoffs,
+            yc=self.use_yc,
         )
 
     async def run(self, days_back: int = 1, max_articles: int = None) -> dict:
@@ -101,12 +120,26 @@ class DailyPipeline:
         if self.use_gdelt:
             gdelt_stats = await self._fetch_gdelt(days_back)
 
-        # Classify
+        # Fetch layoffs data
+        layoffs_stats = {}
+        if self.use_layoffs:
+            layoffs_stats = await self._fetch_layoffs(days_back)
+
+        # Fetch YC companies
+        yc_stats = {}
+        if self.use_yc:
+            yc_stats = await self._fetch_yc()
+
+        # Classify new articles
         unprocessed = self.storage.get_unprocessed(limit=max_articles)
         high_signal = self._classify(unprocessed)
 
+        # Get all unextracted high-signal articles (including from previous runs)
+        to_extract = self.storage.get_unextracted_high_signal(limit=max_articles)
+        logger.info("articles_to_extract", new=len(high_signal), total_unextracted=len(to_extract))
+
         # Extract to knowledge graph (uses hybrid if available)
-        extracted = await self._extract(high_signal)
+        extracted = await self._extract(to_extract)
 
         # Cross-reference news with Form D
         cross_ref_stats = {}
@@ -135,6 +168,8 @@ class DailyPipeline:
             "form_d": form_d_stats,
             "gdelt": gdelt_stats,
             "cross_reference": cross_ref_stats,
+            "layoffs": layoffs_stats,
+            "yc": yc_stats,
         }
 
     async def _fetch(self, days_back: int) -> List:
@@ -176,10 +211,21 @@ class DailyPipeline:
             try:
                 result = await self.extractor.extract(article.title, article.content or article.summary)
                 if result.relationships:
-                    self.kg.add_extraction_result(result, source_url=article.url)
-                    count += len(result.relationships)
+                    # Filter out invalid relationships before storing
+                    valid_relationships = filter_extraction_results(result.relationships)
+                    if valid_relationships:
+                        result.relationships = valid_relationships
+                        self.kg.add_extraction_result(result, source_url=article.url)
+                        count += len(valid_relationships)
+                        logger.debug("extraction_validated",
+                                   article_id=article.id,
+                                   original=len(result.relationships) if hasattr(result, '_original_count') else len(valid_relationships),
+                                   valid=len(valid_relationships))
+                # Mark as extracted AFTER successful extraction (CRITICAL!)
+                self.storage.mark_extracted(article.id)
             except Exception as e:
                 logger.warning("extraction_error", article_id=article.id, error=str(e))
+                # Don't mark as extracted on failure - will retry next run
         return count
 
     async def _enrich(self, limit: int = 20) -> dict:
@@ -273,6 +319,66 @@ class DailyPipeline:
             logger.error("gdelt_error", error=str(e))
             return {"enabled": True, "error": str(e)}
 
+    async def _fetch_layoffs(self, days_back: int) -> dict:
+        """Fetch layoff data from Layoffs.fyi."""
+        if not LAYOFFS_AVAILABLE:
+            return {"enabled": False}
+
+        try:
+            scraper = LayoffsScraper()
+            events = await scraper.fetch_layoffs(days_back=days_back)
+
+            added = 0
+            for event in events:
+                try:
+                    result = scraper.to_extraction_result(event)
+                    if result.relationships:
+                        self.kg.add_extraction_result(result, source_url=event.source_url)
+                        added += len(result.relationships)
+                except Exception as e:
+                    logger.warning("layoffs_add_error", company=event.company, error=str(e))
+
+            logger.info("layoffs_complete", events=len(events), relationships=added)
+            return {
+                "enabled": True,
+                "events_fetched": len(events),
+                "relationships_added": added,
+            }
+
+        except Exception as e:
+            logger.error("layoffs_error", error=str(e))
+            return {"enabled": True, "error": str(e)}
+
+    async def _fetch_yc(self) -> dict:
+        """Fetch YC company directory."""
+        if not YC_AVAILABLE:
+            return {"enabled": False}
+
+        try:
+            scraper = YCScraper()
+            companies = await scraper.fetch_recent_batches(num_batches=4)
+
+            added = 0
+            for company in companies:
+                try:
+                    result = scraper.to_extraction_result(company)
+                    if result.relationships:
+                        self.kg.add_extraction_result(result, source_url=company.website)
+                        added += len(result.relationships)
+                except Exception as e:
+                    logger.warning("yc_add_error", company=company.name, error=str(e))
+
+            logger.info("yc_complete", companies=len(companies), relationships=added)
+            return {
+                "enabled": True,
+                "companies_fetched": len(companies),
+                "relationships_added": added,
+            }
+
+        except Exception as e:
+            logger.error("yc_error", error=str(e))
+            return {"enabled": True, "error": str(e)}
+
     def _cross_reference(self) -> dict:
         """Cross-reference news funding with Form D filings."""
         if not CROSS_REF_AVAILABLE:
@@ -342,14 +448,32 @@ async def run_daily_pipeline(
     max_articles: int = None,
     use_form_d: bool = True,
     use_spacy: bool = True,
-    use_gdelt: bool = False,
+    use_gdelt: bool = True,
     use_cross_ref: bool = True,
+    use_layoffs: bool = True,
+    use_yc: bool = True,
 ) -> dict:
-    """Run the daily pipeline with enhanced features."""
+    """Run the daily pipeline with enhanced features.
+
+    Args:
+        days_back: Number of days to look back for data
+        max_articles: Maximum articles to process
+        use_form_d: Enable SEC Form D filing fetching
+        use_spacy: Enable spaCy NER extraction
+        use_gdelt: Enable GDELT historical news fetching
+        use_cross_ref: Enable cross-referencing news with Form D
+        use_layoffs: Enable Layoffs.fyi scraping for displaced talent
+        use_yc: Enable Y Combinator directory scraping
+
+    Returns:
+        Dict with pipeline statistics
+    """
     pipeline = DailyPipeline(
         use_form_d=use_form_d,
         use_spacy=use_spacy,
         use_gdelt=use_gdelt,
         use_cross_ref=use_cross_ref,
+        use_layoffs=use_layoffs,
+        use_yc=use_yc,
     )
     return await pipeline.run(days_back=days_back, max_articles=max_articles)

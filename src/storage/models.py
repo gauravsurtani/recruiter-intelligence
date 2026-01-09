@@ -43,11 +43,15 @@ class RawArticleModel(Base):
     classification_confidence = Column(Float)
     is_high_signal = Column(Boolean, default=False)
 
+    # Extraction state (CRITICAL: separate from processed!)
+    extracted = Column(Boolean, default=False)
+
     __table_args__ = (
         Index('idx_articles_processed', 'processed'),
         Index('idx_articles_published', 'published_at'),
         Index('idx_articles_source', 'source'),
         Index('idx_articles_high_signal', 'is_high_signal'),
+        Index('idx_articles_extracted', 'extracted'),
     )
 
 

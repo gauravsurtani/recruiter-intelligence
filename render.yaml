@@ -1,0 +1,22 @@
+# Render Blueprint - Recruiter Intelligence
+# Dashboard only (FREE tier) - Worker runs via GitHub Actions
+#
+# Deploy: https://render.com/deploy
+
+services:
+  # Web Dashboard (FREE - spins down after 15 min idle)
+  - type: web
+    name: recruiter-intel
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python scripts/kg_viewer.py
+    envVars:
+      - key: DATABASE_URL
+        sync: false  # Set manually in Render dashboard
+      - key: RI_GEMINI_API_KEY
+        sync: false
+      - key: PYTHONUNBUFFERED
+        value: "1"
+    healthCheckPath: /health
+    autoDeploy: true

@@ -1,6 +1,78 @@
 {
   "feeds": [
     {
+      "name": "Google News - Startup Funding Today",
+      "url": "https://news.google.com/rss/search?q=startup+funding+raised+million&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["funding", "startup"]
+    },
+    {
+      "name": "Google News - Series A Today",
+      "url": "https://news.google.com/rss/search?q=series+a+funding+announcement&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["funding"]
+    },
+    {
+      "name": "Google News - Tech Acquisition Today",
+      "url": "https://news.google.com/rss/search?q=tech+company+acquisition+deal&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["acquisition"]
+    },
+    {
+      "name": "Google News - CEO Hired Today",
+      "url": "https://news.google.com/rss/search?q=ceo+appointed+tech&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["executive_move"]
+    },
+    {
+      "name": "Google News - Executive Appointed",
+      "url": "https://news.google.com/rss/search?q=appointed+CEO+OR+CFO+OR+CTO+tech&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["executive_move"]
+    },
+    {
+      "name": "Google News - Executive Joins",
+      "url": "https://news.google.com/rss/search?q=%22joins+as%22+OR+%22hired+as%22+tech+executive&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["executive_move"]
+    },
+    {
+      "name": "Google News - Executive Leaves",
+      "url": "https://news.google.com/rss/search?q=executive+%22steps+down%22+OR+%22leaving%22+tech&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["executive_move"]
+    },
+    {
+      "name": "Google News - VP Hired",
+      "url": "https://news.google.com/rss/search?q=%22VP%22+OR+%22Vice+President%22+hired+appointed+tech&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["executive_move"]
+    },
+    {
+      "name": "Google News - Tech Layoffs Today",
+      "url": "https://news.google.com/rss/search?q=tech+layoffs+2026&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["layoff"]
+    },
+    {
+      "name": "Google News - Seed Round Today",
+      "url": "https://news.google.com/rss/search?q=seed+round+raised&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["funding", "startup"]
+    },
+    {
+      "name": "Google News - Venture Capital Today",
+      "url": "https://news.google.com/rss/search?q=venture+capital+investment+2026&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["funding"]
+    },
+    {
+      "name": "Google News - IPO Filing",
+      "url": "https://news.google.com/rss/search?q=ipo+filing+2026&hl=en-US&gl=US&ceid=US:en",
+      "priority": 0,
+      "event_types": ["ipo"]
+    },
+    {
       "name": "Crunchbase News",
       "url": "https://news.crunchbase.com/feed/",
       "priority": 0,

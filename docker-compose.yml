@@ -1,0 +1,86 @@
+# Recruiter Intelligence - Docker Compose Configuration
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  # Web Dashboard
+  web:
+    build: .
+    container_name: recruiter-intel-web
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/recruiter_intel
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - recruiter-net
+
+  # Background Worker (Cron Jobs)
+  worker:
+    build: .
+    container_name: recruiter-intel-worker
+    command: python scripts/worker.py
+    environment:
+      - DATABASE_URL=postgresql://postgres:postgres@db:5432/recruiter_intel
+      - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - MAX_ARTICLES_PER_RUN=200
+      - ENABLE_FORM_D=true
+      - ENABLE_LAYOFFS=true
+      - ENABLE_YC=true
+      - SLACK_WEBHOOK_URL=${SLACK_WEBHOOK_URL}
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped
+    networks:
+      - recruiter-net
+
+  # PostgreSQL Database
+  db:
+    image: postgres:15-alpine
+    container_name: recruiter-intel-db
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=recruiter_intel
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    ports:
+      - "5432:5432"
+    networks:
+      - recruiter-net
+
+  # Redis Cache (Optional - for future use)
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: recruiter-intel-redis
+  #   ports:
+  #     - "6379:6379"
+  #   networks:
+  #     - recruiter-net
+
+volumes:
+  postgres_data:
+
+networks:
+  recruiter-net:
+    driver: bridge

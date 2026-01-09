@@ -1,0 +1,115 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 680px;
+            margin: 0 auto;
+            padding: 40px 20px;
+            background: #fff;
+            color: #1a1a1a;
+            line-height: 1.6;
+        }
+        .header { margin-bottom: 32px; }
+        h1 {
+            font-size: 1.5em;
+            font-weight: 600;
+            color: #1a1a1a;
+            margin-bottom: 8px;
+        }
+        .date { color: #666; font-size: 0.9em; }
+        .summary {
+            color: #444;
+            font-size: 1em;
+            padding: 16px 0;
+            border-bottom: 1px solid #eee;
+            margin-bottom: 32px;
+        }
+        .section { margin-bottom: 32px; }
+        h2 {
+            font-size: 0.85em;
+            font-weight: 600;
+            color: #666;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 16px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid #eee;
+        }
+        .items { }
+        .item {
+            padding: 12px 0;
+            border-bottom: 1px solid #f5f5f5;
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 12px;
+        }
+        .item:last-child { border-bottom: none; }
+        .item-main { flex: 1; }
+        .company { font-weight: 500; color: #1a1a1a; }
+        .detail { color: #666; }
+        .tag {
+            font-size: 0.7em;
+            font-weight: 500;
+            padding: 3px 8px;
+            border-radius: 3px;
+            text-transform: uppercase;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+        }
+        .tag-sec { background: #e8f5e9; color: #2e7d32; }
+        .tag-news { background: #e3f2fd; color: #1565c0; }
+        .tag-ma { background: #f3e5f5; color: #7b1fa2; }
+        .tag-layoff { background: #ffebee; color: #c62828; }
+        .tag-available { background: #e8f5e9; color: #2e7d32; }
+        .tag-hired { background: #fff3e0; color: #e65100; }
+        .amount { font-weight: 500; color: #1a1a1a; }
+        .meta { color: #999; font-size: 0.8em; margin-top: 4px; }
+        .stats {
+            display: flex;
+            gap: 24px;
+            padding: 24px 0;
+            border-top: 1px solid #eee;
+            margin-top: 32px;
+        }
+        .stat { text-align: left; }
+        .stat-value { font-size: 1.5em; font-weight: 600; color: #1a1a1a; }
+        .stat-label { font-size: 0.8em; color: #666; }
+        .footer {
+            margin-top: 32px;
+            padding-top: 24px;
+            border-top: 1px solid #eee;
+            color: #999;
+            font-size: 0.8em;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>Recruiter Intelligence</h1>
+        <div class="date">January 08, 2026</div>
+    </div>
+    <div class="summary">This week: 15 rounds, 9 activity, 6 (displaced talent), 10 moves, 10 talent.</div>
+<div class="section"><h2>Funding Rounds</h2><div class="items"><div class="item"><div class="item-main"><span class="company">MiniPix</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">xAI</span> <span class="detail">raised</span> <span class="amount">$20 billion</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">Lyte AI Inc.</span> <span class="detail">raised</span> <span class="amount">$107 million</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">Pluto Financial Technologies Inc.</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">Clipto Inc.</span> <span class="detail">raised</span> <span class="amount">$250 million</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">DayOne Data Centers Ltd.</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">Osmos</span> <span class="detail">raised</span> <span class="amount">$13 million</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">Digital Biotechnologies Inc.</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">Palestinian Youth Movement</span></div><span class="tag tag-news">News</span></div><div class="item"><div class="item-main"><span class="company">American Muslims for Palestine</span></div><span class="tag tag-news">News</span></div></div></div><div class="section"><h2>M&A Activity</h2><div class="items"><div class="item"><div class="item-main"><span class="company">Nvidia</span> <span class="detail">acquired</span> <span class="company">Groq</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">ServiceNow</span> <span class="detail">acquired</span> <span class="company">Moveworks</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">Hg</span> <span class="detail">acquired</span> <span class="company">OneStream Inc.</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">A. O. Smith Corporation</span> <span class="detail">acquired</span> <span class="company">LVC Holdco LLC</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">Microsoft</span> <span class="detail">acquired</span> <span class="company">Osmos</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">Meta</span> <span class="detail">acquired</span> <span class="company">Manus AI</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">Mobileye</span> <span class="detail">acquired</span> <span class="company">Mentee Robotics</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">Accenture</span> <span class="detail">acquired</span> <span class="company">Faculty</span></div><span class="tag tag-ma">M&A</span></div><div class="item"><div class="item-main"><span class="company">Marvell Technology</span> <span class="detail">acquired</span> <span class="company">XConn Technologies</span></div><span class="tag tag-ma">M&A</span></div></div></div><div class="section"><h2>Layoffs</h2><div class="items"><div class="item"><div class="item-main"><span class="company">Amazon</span> <span class="detail">84 employees</span></div><span class="tag tag-layoff">Layoff</span></div><div class="item"><div class="item-main"><span class="company">Intel</span> <span class="detail">59 employees</span></div><span class="tag tag-layoff">Layoff</span></div><div class="item"><div class="item-main"><span class="company">Microsoft</span> <span class="detail">200 employees</span></div><span class="tag tag-layoff">Layoff</span></div><div class="item"><div class="item-main"><span class="company">Salesforce</span> <span class="detail">150 employees</span></div><span class="tag tag-layoff">Layoff</span></div><div class="item"><div class="item-main"><span class="company">Meta</span> <span class="detail">300 employees</span></div><span class="tag tag-layoff">Layoff</span></div><div class="item"><div class="item-main"><span class="company">Third Coast</span></div><span class="tag tag-layoff">Layoff</span></div></div></div><div class="section"><h2>Executive Moves</h2><div class="items"><div class="item"><div class="item-main"><span class="company">C.J. Mahoney</span> <span class="detail">left</span> <span class="company">Microsoft</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Delcy Rodríguez</span> <span class="detail">left</span> <span class="company">Venezuela</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Delcy Rodríguez</span> <span class="detail">left</span> <span class="company">Nicolás Maduro</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Peggy Flanagan</span> <span class="detail">left</span> <span class="company">Tim Walz</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Tim Walz</span> <span class="detail">left</span> <span class="company">Minnesota</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Jennifer Newstead</span> <span class="detail">left</span> <span class="company">Meta</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Karthik Ramakrishnan</span> <span class="detail">left</span> <span class="company">Amazon</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Michael Bendersky</span> <span class="detail">left</span> <span class="company">DeepMind</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Michael Bendersky</span> <span class="detail">left</span> <span class="company">Google</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Karl Jacobson</span> <span class="detail">left</span> <span class="company">New Haven</span></div><span class="tag tag-available">Available</span></div></div></div><div class="section"><h2>Available Talent</h2><div class="items"><div class="item"><div class="item-main"><span class="company">Karl Jacobson</span> <span class="detail">(Ceo)</span> <span class="detail">from New Haven</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">C.J. Mahoney</span> <span class="detail">(Executive)</span> <span class="detail">from Microsoft</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Delcy Rodríguez</span> <span class="detail">(Executive)</span> <span class="detail">from Venezuela</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Peggy Flanagan</span> <span class="detail">(Executive)</span> <span class="detail">from Tim Walz</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Tim Walz</span> <span class="detail">(Executive)</span> <span class="detail">from Minnesota</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Jennifer Newstead</span> <span class="detail">(Executive)</span> <span class="detail">from Meta</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Karthik Ramakrishnan</span> <span class="detail">(Executive)</span> <span class="detail">from Amazon</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Michael Bendersky</span> <span class="detail">(Executive)</span> <span class="detail">from DeepMind</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Eric Leeper</span> <span class="detail">(Executive)</span> <span class="detail">from Federal Reserve</span></div><span class="tag tag-available">Available</span></div><div class="item"><div class="item-main"><span class="company">Kate Lowry</span> <span class="detail">(Executive)</span> <span class="detail">from Insight Partners</span></div><span class="tag tag-available">Available</span></div></div></div>
+    <div class="stats">
+        <div class="stat">
+            <div class="stat-value">1,808</div>
+            <div class="stat-label">Entities</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value">244</div>
+            <div class="stat-label">Relationships</div>
+        </div>
+    </div>
+
+    <div class="footer">
+        Data from SEC EDGAR, news feeds, Layoffs.fyi, and Y Combinator.
+    </div>
+</body>
+</html>

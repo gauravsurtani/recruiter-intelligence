@@ -16,9 +16,9 @@ from fastapi import FastAPI, Request, Query, Form
 from fastapi.responses import HTMLResponse, RedirectResponse
 import uvicorn
 
-from src.knowledge_graph.graph import KnowledgeGraph
-from src.storage.database import ArticleStorage
+from src.storage.factory import get_article_storage, get_knowledge_graph
 from src.config.feed_manager import FeedManager
+from src.newsletter.generator import NewsletterGenerator
 
 app = FastAPI(title="Recruiter Intelligence")
 
@@ -43,11 +43,32 @@ def get_pipeline_state():
 
 
 def get_kg():
-    return KnowledgeGraph()
+    return get_knowledge_graph()
 
 
 def get_storage():
-    return ArticleStorage()
+    return get_article_storage()
+
+
+# ===== HEALTH CHECK ENDPOINT =====
+@app.get("/health")
+async def health_check():
+    """Health check endpoint for load balancers."""
+    try:
+        storage = get_storage()
+        stats = storage.get_stats()
+        return {
+            "status": "healthy",
+            "timestamp": datetime.utcnow().isoformat(),
+            "database": "connected",
+            "articles": stats.get("total_articles", 0),
+        }
+    except Exception as e:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(
+            status_code=503,
+            content={"status": "unhealthy", "error": str(e)}
+        )
 
 
 # ===== DATA QUALITY FILTERS =====
@@ -675,6 +696,7 @@ HTML_TEMPLATE = """
                 <div class="nav-divider"></div>
                 <a href="/companies" class="{nav_companies}">Companies</a>
                 <a href="/candidates" class="{nav_candidates}">Candidates</a>
+                <a href="/newsletter" class="{nav_newsletter}">Newsletter</a>
                 <div class="nav-divider"></div>
                 <div class="nav-group">
                     <span class="nav-group-label">Data</span>
@@ -715,6 +737,7 @@ def render(content: str, active: str = "", title_suffix: str = "") -> str:
         'nav_relationships': 'active' if active == 'relationships' else '',
         'nav_companies': 'active' if active == 'companies' else '',
         'nav_candidates': 'active' if active == 'candidates' else '',
+        'nav_newsletter': 'active' if active == 'newsletter' else '',
     }
     return HTML_TEMPLATE.format(
         content=content,
@@ -2600,13 +2623,194 @@ async def entities_by_tag(tag: str):
     return render(content, title_suffix=f'Tag: {tag}')
 
 
+@app.get("/newsletter", response_class=HTMLResponse)
+async def newsletter(
+    period: str = Query("weekly", description="weekly or daily"),
+    format: str = Query("html", description="html or embed")
+):
+    """Generate recruiter intelligence newsletter."""
+    kg = get_kg()
+    generator = NewsletterGenerator(kg)
+
+    if period == "daily":
+        nl = generator.generate_daily()
+    else:
+        nl = generator.generate_weekly()
+
+    # Format options dropdown
+    format_options = f"""
+        <option value="html" {"selected" if format == "html" else ""}>Embedded</option>
+        <option value="standalone" {"selected" if format == "standalone" else ""}>Standalone HTML</option>
+        <option value="markdown" {"selected" if format == "markdown" else ""}>Markdown</option>
+    """
+
+    period_options = f"""
+        <option value="weekly" {"selected" if period == "weekly" else ""}>Weekly Digest</option>
+        <option value="daily" {"selected" if period == "daily" else ""}>Daily Update</option>
+    """
+
+    # If standalone HTML requested, return raw HTML
+    if format == "standalone":
+        return HTMLResponse(generator.to_html(nl))
+
+    # If markdown requested, show in code block
+    if format == "markdown":
+        md_content = generator.to_markdown(nl)
+        content = f"""
+        <h1>Newsletter - {period.title()} Digest</h1>
+
+        <div class="card" style="margin-bottom: 24px;">
+            <form method="get" action="/newsletter" style="display: flex; gap: 16px; align-items: center;">
+                <select name="period" class="filter-select" onchange="this.form.submit()">
+                    {period_options}
+                </select>
+                <select name="format" class="filter-select" onchange="this.form.submit()">
+                    {format_options}
+                </select>
+                <a href="/newsletter?period={period}&format=standalone" target="_blank" class="btn btn-primary">
+                    Open in New Tab
+                </a>
+            </form>
+        </div>
+
+        <div class="card">
+            <div class="card-header">Markdown Output</div>
+            <pre style="background: #1f2937; color: #f3f4f6; padding: 20px; border-radius: 8px; overflow-x: auto; white-space: pre-wrap;">{md_content}</pre>
+        </div>
+        """
+        return render(content, active='newsletter', title_suffix='Newsletter')
+
+    # Embedded view - minimal design
+    # Clean section titles
+    section_titles = {
+        "Companies That Raised Funding": "Funding Rounds",
+        "Acquisitions & Mergers": "M&A Activity",
+        "Layoffs (Displaced Talent)": "Layoffs",
+        "Executive Movements": "Executive Moves",
+        "Hot Candidates": "Available Talent",
+    }
+
+    sections_html = ""
+    for section in nl.sections:
+        # Clean title (remove emojis)
+        title = section.title
+        for old, new in section_titles.items():
+            if old in title:
+                title = new
+                break
+        title = ''.join(c for c in title if ord(c) < 128 or c.isalnum())
+
+        sections_html += f"""
+        <div style="margin-bottom: 32px;">
+            <h3 style="font-size: 0.8em; font-weight: 600; color: var(--gray-500); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--gray-200);">{title}</h3>
+        """
+
+        for item in section.items[:12]:
+            sections_html += '<div style="display: flex; justify-content: space-between; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--gray-100);">'
+            sections_html += '<div style="flex: 1;">'
+
+            if 'company' in item and 'amount' in item:
+                sections_html += f'<a href="/search?q={item["company"]}" style="font-weight: 500; color: var(--gray-900); text-decoration: none;">{item["company"]}</a>'
+                if item.get('amount'):
+                    sections_html += f' <span style="color: var(--gray-500);">raised</span> <span style="font-weight: 500;">{item["amount"]}</span>'
+                tag_style = "background: #e8f5e9; color: #2e7d32;" if item.get('source') == 'SEC' else "background: #e3f2fd; color: #1565c0;"
+                sections_html += f'</div><span style="font-size: 0.7em; font-weight: 500; padding: 3px 8px; border-radius: 3px; text-transform: uppercase; {tag_style}">{item.get("source", "News")}</span>'
+
+            elif 'acquirer' in item:
+                sections_html += f'<a href="/search?q={item["acquirer"]}" style="font-weight: 500; color: var(--gray-900); text-decoration: none;">{item["acquirer"]}</a>'
+                sections_html += f' <span style="color: var(--gray-500);">acquired</span> '
+                sections_html += f'<a href="/search?q={item["target"]}" style="font-weight: 500; color: var(--gray-900); text-decoration: none;">{item["target"]}</a>'
+                sections_html += '</div><span style="font-size: 0.7em; font-weight: 500; padding: 3px 8px; border-radius: 3px; text-transform: uppercase; background: #f3e5f5; color: #7b1fa2;">M&A</span>'
+
+            elif 'employees' in item:
+                sections_html += f'<a href="/search?q={item["company"]}" style="font-weight: 500; color: var(--gray-900); text-decoration: none;">{item["company"]}</a>'
+                if item.get('employees'):
+                    sections_html += f' <span style="color: var(--gray-500);">{item["employees"]:,} employees</span>'
+                sections_html += '</div><span style="font-size: 0.7em; font-weight: 500; padding: 3px 8px; border-radius: 3px; text-transform: uppercase; background: #ffebee; color: #c62828;">Layoff</span>'
+
+            elif 'person' in item and 'action' in item:
+                sections_html += f'<a href="/search?q={item["person"]}" style="font-weight: 500; color: var(--gray-900); text-decoration: none;">{item["person"]}</a>'
+                action = "joined" if item["action"] == "joined" else "left"
+                sections_html += f' <span style="color: var(--gray-500);">{action}</span> '
+                sections_html += f'<a href="/search?q={item["company"]}" style="font-weight: 500; color: var(--gray-900); text-decoration: none;">{item["company"]}</a>'
+                tag_style = "background: #fff3e0; color: #e65100;" if item.get("signal") == "Hired" else "background: #e8f5e9; color: #2e7d32;"
+                sections_html += f'</div><span style="font-size: 0.7em; font-weight: 500; padding: 3px 8px; border-radius: 3px; text-transform: uppercase; {tag_style}">{item.get("signal", "Move")}</span>'
+
+            elif 'name' in item and 'previous_company' in item:
+                sections_html += f'<a href="/search?q={item["name"]}" style="font-weight: 500; color: var(--gray-900); text-decoration: none;">{item["name"]}</a>'
+                if item.get('title'):
+                    sections_html += f' <span style="color: var(--gray-500);">({item["title"]})</span>'
+                sections_html += f' <span style="color: var(--gray-500);">from</span> '
+                sections_html += f'<a href="/search?q={item["previous_company"]}" style="color: var(--gray-700); text-decoration: none;">{item["previous_company"]}</a>'
+                sections_html += '</div><span style="font-size: 0.7em; font-weight: 500; padding: 3px 8px; border-radius: 3px; text-transform: uppercase; background: #e8f5e9; color: #2e7d32;">Available</span>'
+
+            else:
+                sections_html += '</div>'
+
+            sections_html += '</div>'
+
+        if not section.items:
+            sections_html += '<p style="color: var(--gray-500); padding: 20px; text-align: center;">No events</p>'
+
+        sections_html += '</div>'
+
+    # Minimal stats
+    stats = nl.stats
+    stats_html = f"""
+    <div style="display: flex; gap: 32px; padding: 20px 0; border-top: 1px solid var(--gray-200); margin-top: 24px;">
+        <div>
+            <div style="font-size: 1.5em; font-weight: 600; color: var(--gray-900);">{stats.get('total_entities', 0):,}</div>
+            <div style="font-size: 0.8em; color: var(--gray-500);">Entities</div>
+        </div>
+        <div>
+            <div style="font-size: 1.5em; font-weight: 600; color: var(--gray-900);">{stats.get('total_relationships', 0):,}</div>
+            <div style="font-size: 0.8em; color: var(--gray-500);">Relationships</div>
+        </div>
+    </div>
+    """
+
+    content = f"""
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <h1 style="margin: 0;">Newsletter</h1>
+        <a href="/newsletter?period={period}&format=standalone" target="_blank" style="font-size: 0.85em; color: var(--primary); text-decoration: none;">Open standalone &rarr;</a>
+    </div>
+    <p style="color: var(--gray-500); margin-bottom: 24px; font-size: 0.95em;">{nl.summary}</p>
+
+    <div style="display: flex; gap: 12px; margin-bottom: 32px;">
+        <form method="get" action="/newsletter" style="display: flex; gap: 12px;">
+            <select name="period" class="filter-select" onchange="this.form.submit()" style="padding: 6px 12px; border: 1px solid var(--gray-200); border-radius: 4px; font-size: 0.85em;">
+                {period_options}
+            </select>
+            <select name="format" class="filter-select" onchange="this.form.submit()" style="padding: 6px 12px; border: 1px solid var(--gray-200); border-radius: 4px; font-size: 0.85em;">
+                {format_options}
+            </select>
+        </form>
+    </div>
+
+    {sections_html}
+    {stats_html}
+
+    <div style="padding-top: 16px; color: var(--gray-400); font-size: 0.8em;">
+        Data from SEC EDGAR, news feeds, Layoffs.fyi, Y Combinator. Generated {nl.date.strftime('%b %d, %Y')}.
+    </div>
+    """
+
+    return render(content, active='newsletter', title_suffix='Newsletter')
+
+
 if __name__ == "__main__":
+    import os
+    from dotenv import load_dotenv
+    load_dotenv()
+
+    port = int(os.environ.get("PORT", 8000))
+
     print("\n" + "="*60)
     print("RECRUITER INTELLIGENCE")
     print("="*60)
     print("Starting web server...")
-    print("Open http://localhost:8000 in your browser")
+    print(f"Open http://localhost:{port} in your browser")
     print("Press Ctrl+C to stop")
     print("="*60 + "\n")
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    uvicorn.run(app, host="0.0.0.0", port=port)
