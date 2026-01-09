@@ -35,6 +35,7 @@ rich>=13.0.0
 # API (Phase 5)
 fastapi>=0.109.0
 uvicorn>=0.27.0
+python-multipart>=0.0.6  # Required for FastAPI form handling
 
 # Enhanced data sources
 edgartools>=0.20.0  # SEC EDGAR Form D API
