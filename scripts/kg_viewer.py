@@ -50,6 +50,148 @@ def get_storage():
     return ArticleStorage()
 
 
+# ===== DATA QUALITY FILTERS =====
+# Filter out ONLY actual investment vehicles (SPVs, funds, family offices)
+# Keep ALL real operating companies - startups of any industry
+
+# These are investment vehicle patterns - NOT operating companies
+INVESTMENT_VEHICLE_PATTERNS = [
+    # SPV patterns (Special Purpose Vehicles)
+    'a series of', 'series of ', 'spv,', ' spv ', ' spv',
+    # Fund structures
+    'fund lp', 'fund l.p.', 'fund, l.p.', 'fund, llc', 'fund llc',
+    'master fund', 'offshore fund', 'opportunity fund', 'access fund',
+    # GP/LP structures (fund management)
+    'gp llc', 'gp, llc', 'gp ii', 'gp iii', 'gp iv', 'gp ltd',
+    'capital lp', 'partners lp', 'partners l.p.', 'ventures lp',
+    'partners i,', 'partners ii,', 'partners iii,', 'partners iv,',
+    'partners i-', 'partners ii-', 'partners iii-',
+    # Real estate investment
+    'operating partnership', 'reit', 'municipal', 'real estate',
+    'dst', 'apartment', 'senior investors', 'housing',
+    # Known fund-only entities
+    'witz ventures llc', 'anchor capital gp', 'springcoast',
+    'growth partners', 'alternative investment',
+    # Address-like names (real estate deals)
+    'investors, llc', 'holdings, llc',
+]
+
+EXCLUDED_COMPANY_PATTERNS = [
+    # Date patterns in SPV names (e.g., "SpaceX Dec 2025 a Series of...")
+    r'\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)\s+\d{4}\s+a\s+series',
+    # Numbered fund series (Fund I, Fund II, etc.)
+    r'\bfund\s+(i|ii|iii|iv|v|vi|vii|viii|ix|x)\b',
+    # Fund series patterns
+    r'fund\s+[ivx]+\s+llc',
+    # Series patterns
+    r'-\s*series\s*\d',
+    # Quarter patterns in SPV names
+    r'\bq[1-4]\s+\d+\s+a\s+series',
+    # Address patterns (123 Main St LLC)
+    r'^\d+\s+[a-z]+\s+(st|ave|blvd|rd|way|dr)',
+]
+
+def is_investment_vehicle(name: str) -> bool:
+    """Check if a name is an investment vehicle (fund/SPV) vs real operating company.
+
+    Be CONSERVATIVE - only filter out obvious investment structures.
+    When in doubt, KEEP the company (might be a real startup).
+    """
+    if not name:
+        return False
+    name_lower = name.lower()
+
+    # Check for investment vehicle patterns
+    for pattern in INVESTMENT_VEHICLE_PATTERNS:
+        if pattern in name_lower:
+            return True
+
+    # Check regex patterns
+    import re
+    for pattern in EXCLUDED_COMPANY_PATTERNS:
+        if re.search(pattern, name_lower, re.IGNORECASE):
+            return True
+
+    return False
+
+
+def has_news_coverage(kg, entity_name: str) -> bool:
+    """Check if an entity has relationships from news (not just SEC filings)."""
+    rels = kg.query(subject=entity_name, limit=50)
+    rels += kg.query(obj=entity_name, limit=50)
+
+    for rel in rels:
+        context = getattr(rel, 'context', '') or ''
+        # News relationships don't have "Form D" in context
+        if context and 'Form D' not in context:
+            return True
+    return False
+
+
+def get_real_operating_companies(kg):
+    """Get all real operating companies (any industry, excludes investment vehicles)."""
+    all_companies = kg.search_entities('', entity_type='company')
+
+    real_companies = []
+    for company in all_companies:
+        # Skip investment vehicles (SPVs, funds, etc.)
+        if is_investment_vehicle(company.name):
+            continue
+
+        # Check if has news coverage (higher quality signal)
+        news = has_news_coverage(kg, company.name)
+        real_companies.append((company, news))
+
+    return real_companies
+
+
+# Alias for compatibility
+get_real_tech_companies = get_real_operating_companies
+
+
+def get_real_executives(kg):
+    """Get people who are real tech executives (not fund managers)."""
+    all_people = kg.search_entities('', entity_type='person')
+
+    real_executives = []
+    for person in all_people:
+        # Skip obviously bad names
+        if not person.name or len(person.name) < 3:
+            continue
+
+        # Skip AI model names that were incorrectly extracted
+        if any(x in person.name.lower() for x in ['gpt-', 'claude ', 'gemini ', 'llama ']):
+            continue
+
+        # Check for executive relationships with real companies
+        exec_rels = kg.query(subject=person.name, limit=20)
+        has_real_exec_rel = False
+        company_name = None
+        is_from_news = False
+
+        for rel in exec_rels:
+            if rel.predicate in ['CEO_OF', 'CTO_OF', 'CFO_OF', 'FOUNDED', 'OFFICER_OF', 'EXECUTIVE_OF', 'DIRECTOR_OF']:
+                obj_name = rel.object.name if hasattr(rel.object, 'name') else str(rel.object)
+
+                # Skip if the company is an investment vehicle
+                if is_investment_vehicle(obj_name):
+                    continue
+
+                has_real_exec_rel = True
+                company_name = obj_name
+
+                # Check if from news (higher quality)
+                context = getattr(rel, 'context', '') or ''
+                if 'Form D' not in context:
+                    is_from_news = True
+                break
+
+        if has_real_exec_rel:
+            real_executives.append((person, company_name, is_from_news))
+
+    return real_executives
+
+
 # Enhanced HTML Template with better styling
 HTML_TEMPLATE = """
 <!DOCTYPE html>
@@ -1725,70 +1867,91 @@ async def relationships(predicate: str = Query(None)):
 
 @app.get("/companies", response_class=HTMLResponse)
 async def companies():
-    """High-value companies view for recruiters."""
+    """High-value companies view for recruiters - filtered for real tech companies."""
     kg = get_kg()
+    import urllib.parse
 
-    # Get all companies
-    all_companies = kg.search_entities('', entity_type='company')
+    # Get filtered companies (excludes investment vehicles/SPVs)
+    real_companies = get_real_tech_companies(kg)
 
     # Score companies based on recruiting signals
     scored_companies = []
-    for company in all_companies:
+    for company, has_news in real_companies:
         score = 0
         signals = []
+        source_type = 'news' if has_news else 'sec'
+
+        # BOOST: Companies with news coverage are more valuable
+        if has_news:
+            score += 20
+            signals.append("In News")
 
         # Check for recent funding (from news: FUNDED_BY, from SEC: RAISED_FUNDING)
         funding_rels = kg.query(subject=company.name, predicate="FUNDED_BY", limit=10)
         sec_funding_rels = kg.query(subject=company.name, predicate="RAISED_FUNDING", limit=10)
-        total_funding = len(funding_rels) + len(sec_funding_rels)
-        if total_funding > 0:
-            score += 30
-            signals.append(f"Funded ({total_funding}x)")
+
+        # News funding is more valuable than SEC-only
+        if funding_rels:
+            score += 35
+            signals.append(f"Funded (News)")
+        elif sec_funding_rels:
+            score += 25
+            signals.append(f"Funded (SEC)")
 
         # Check for acquisitions (company is acquiring)
         acq_rels = kg.query(subject=company.name, predicate="ACQUIRED", limit=10)
         if acq_rels:
-            score += 25
+            score += 30
             signals.append(f"Acquiring ({len(acq_rels)}x)")
 
         # Check for being acquired (uncertainty)
         acquired_rels = kg.query(obj=company.name, predicate="ACQUIRED", limit=10)
         if acquired_rels:
-            score += 15
+            score += 20
             signals.append("Was acquired")
 
         # Check for hires (active hiring)
         hire_rels = kg.query(obj=company.name, predicate="HIRED_BY", limit=20)
         if hire_rels:
-            score += len(hire_rels) * 2
+            score += len(hire_rels) * 3
             signals.append(f"Hiring ({len(hire_rels)} recent)")
 
         # Check for departures (backfill opportunities)
         depart_rels = kg.query(obj=company.name, predicate="DEPARTED_FROM", limit=10)
         if depart_rels:
-            score += len(depart_rels) * 3
+            score += len(depart_rels) * 4
             signals.append(f"Departures ({len(depart_rels)})")
 
         # Check for layoffs (restructuring)
         layoff_rels = kg.query(subject=company.name, predicate="LAID_OFF", limit=5)
         if layoff_rels:
-            score += 10
+            score += 15
             signals.append("Layoffs")
 
+        # Only include companies with some signal
         if score > 0:
             scored_companies.append({
                 'company': company,
                 'score': score,
-                'signals': signals
+                'signals': signals,
+                'source_type': source_type
             })
 
     # Sort by score
     scored_companies.sort(key=lambda x: x['score'], reverse=True)
 
-    content = """
+    # Stats for header
+    total_companies = len(kg.search_entities('', entity_type='company'))
+    filtered_count = len(real_companies)
+    with_signals = len(scored_companies)
+
+    content = f"""
     <h1>High-Value Companies</h1>
-    <p style="color: var(--gray-500); margin-bottom: 24px;">
+    <p style="color: var(--gray-500); margin-bottom: 12px;">
         Companies ranked by recruiting opportunity signals: funding, acquisitions, hiring activity, departures.
+    </p>
+    <p style="color: var(--gray-400); font-size: 0.9em; margin-bottom: 24px;">
+        Showing {with_signals} companies with signals (filtered from {filtered_count} tech companies, {total_companies - filtered_count} investment vehicles excluded)
     </p>
 
     <div class="card">
@@ -1796,22 +1959,22 @@ async def companies():
             Companies by Recruiting Value
         </div>
         <table>
-            <tr><th>Score</th><th>Company</th><th>Signals</th><th>Last Event</th><th>Actions</th></tr>
+            <tr><th>Score</th><th>Company</th><th>Source</th><th>Signals</th><th>Actions</th></tr>
     """
 
     for item in scored_companies[:50]:
         signals_html = ' '.join([f'<span class="tag tag-hiring">{s}</span>' for s in item['signals']])
         enriched = kg.get_enrichment(item['company'].id)
         enr_dot = '<span style="color: var(--success);">●</span>' if enriched else '<span style="color: var(--gray-300);">○</span>'
-        import urllib.parse
         company_name_encoded = urllib.parse.quote(item['company'].name, safe='')
         linkedin_slug = item['company'].name.lower().replace(' ', '-')
+        source_badge = '<span class="tag tag-funded">News</span>' if item['source_type'] == 'news' else '<span class="tag" style="background: var(--gray-200);">SEC</span>'
         content += f"""
             <tr>
                 <td><strong style="color: var(--primary);">{item['score']}</strong></td>
                 <td>{enr_dot} <a href="/entity/{item['company'].id}">{item['company'].name}</a></td>
+                <td>{source_badge}</td>
                 <td>{signals_html}</td>
-                <td>-</td>
                 <td>
                     <a href="/search?q={company_name_encoded}" class="btn btn-sm btn-secondary">Events</a>
                     <a href="https://linkedin.com/company/{linkedin_slug}" target="_blank" class="btn btn-sm btn-secondary">LinkedIn</a>
@@ -1829,113 +1992,166 @@ async def companies():
 
 @app.get("/candidates", response_class=HTMLResponse)
 async def candidates():
-    """High-value candidates view for recruiters."""
+    """High-value candidates view - founders, executives, and underdogs at startups."""
     kg = get_kg()
+    import urllib.parse
 
     # Get all people
     all_people = kg.search_entities('', entity_type='person')
 
-    # Score people based on recruiting signals
+    # Filter and score candidates
     scored_candidates = []
     for person in all_people:
+        # Skip obviously bad names
+        if not person.name or len(person.name) < 3:
+            continue
+
+        # Skip AI model names and obviously wrong extractions
+        bad_patterns = ['gpt-', 'claude ', 'gemini ', 'llama ', 'mistral ',
+                       'donald trump', 'joe biden', 'barack obama', 'elon musk',  # Celebrities often misextracted
+                       'venezuela', 'colombia', 'ministry']  # Country/govt misextractions
+        if any(x in person.name.lower() for x in bad_patterns):
+            continue
+
         score = 0
         signals = []
         current_company = None
+        role = None
+        is_from_news = False
 
-        # Check for departures (available)
-        depart_rels = kg.query(subject=person.name, predicate="DEPARTED_FROM", limit=5)
-        if depart_rels:
-            score += 40
-            signals.append(f"Left {depart_rels[0].object.name}")
+        # Check all relationships for this person
+        all_rels = kg.query(subject=person.name, limit=30)
 
-        # Check current company (from hires)
-        hire_rels = kg.query(subject=person.name, predicate="HIRED_BY", limit=5)
-        if hire_rels:
-            current_company = hire_rels[0].object.name
+        for rel in all_rels:
+            obj_name = rel.object.name if hasattr(rel.object, 'name') else str(rel.object)
+            context = getattr(rel, 'context', '') or ''
 
-            # Check if current company was acquired
-            acq_rels = kg.query(obj=current_company, predicate="ACQUIRED", limit=1)
-            if acq_rels:
-                score += 25
-                signals.append(f"At acquired company")
+            # Skip if company is an investment vehicle
+            if is_investment_vehicle(obj_name):
+                continue
 
-            # Check if current company had layoffs
-            layoff_rels = kg.query(subject=current_company, predicate="LAID_OFF", limit=1)
-            if layoff_rels:
-                score += 20
-                signals.append("At company with layoffs")
+            if rel.predicate == 'FOUNDED':
+                score += 50  # Founders are highest value
+                signals.append("Founder")
+                current_company = obj_name
+                role = "Founder"
+                if 'Form D' not in context:
+                    is_from_news = True
 
-        # Check for executive roles (from news: CEO_OF etc, from SEC: OFFICER_OF)
-        exec_rels = kg.query(subject=person.name, limit=20)
-        is_executive = False
-        for rel in exec_rels:
-            if rel.predicate in ['CEO_OF', 'CTO_OF', 'CFO_OF', 'FOUNDED', 'OFFICER_OF']:
-                is_executive = True
-                if not current_company and rel.predicate == 'OFFICER_OF':
-                    current_company = rel.object.name
-                break
-        if is_executive:
-            score += 30
-            signals.append("Executive")
+            elif rel.predicate == 'CEO_OF':
+                score += 45
+                signals.append("CEO")
+                current_company = obj_name
+                role = "CEO"
+                if 'Form D' not in context:
+                    is_from_news = True
 
-        if score > 0:
+            elif rel.predicate in ['CTO_OF', 'CFO_OF']:
+                score += 40
+                signals.append(rel.predicate.replace('_OF', ''))
+                current_company = obj_name
+                role = rel.predicate.replace('_OF', '')
+                if 'Form D' not in context:
+                    is_from_news = True
+
+            elif rel.predicate == 'OFFICER_OF':
+                if score < 25:  # Don't overwrite better roles
+                    score += 25
+                    signals.append("Officer/Director")
+                    current_company = obj_name
+                    role = "Officer"
+
+            elif rel.predicate == 'EXECUTIVE_OF':
+                if score < 35:
+                    score += 35
+                    signals.append("Executive")
+                    current_company = obj_name
+                    role = "Executive"
+
+            elif rel.predicate == 'DIRECTOR_OF':
+                if score < 20:
+                    score += 20
+                    signals.append("Director")
+                    current_company = obj_name
+                    role = "Director"
+
+            elif rel.predicate == 'DEPARTED_FROM':
+                score += 30  # Availability signal
+                signals.append(f"Left {obj_name}")
+
+            elif rel.predicate == 'HIRED_BY':
+                if not current_company:
+                    current_company = obj_name
+                score += 10
+                signals.append("Recently hired")
+
+        # Boost for news coverage (more visible/notable people)
+        if is_from_news:
+            score += 15
+            if "In News" not in signals:
+                signals.append("In News")
+
+        # Only include if they have some signal
+        if score > 0 and current_company:
             scored_candidates.append({
                 'person': person,
                 'score': score,
-                'signals': signals,
-                'current_company': current_company
+                'signals': list(set(signals)),  # Dedupe
+                'current_company': current_company,
+                'role': role,
+                'is_from_news': is_from_news
             })
 
     # Sort by score
     scored_candidates.sort(key=lambda x: x['score'], reverse=True)
 
-    content = """
-    <h1>High-Value Candidates</h1>
-    <p style="color: var(--gray-500); margin-bottom: 24px;">
-        People ranked by availability signals: departures, company changes, executive status.
+    # Stats
+    total_people = len(all_people)
+    with_signals = len(scored_candidates)
+
+    content = f"""
+    <h1>Founders & Executives</h1>
+    <p style="color: var(--gray-500); margin-bottom: 12px;">
+        People at startups ranked by role and availability signals. Includes founders, executives, and officers.
+    </p>
+    <p style="color: var(--gray-400); font-size: 0.9em; margin-bottom: 24px;">
+        Showing {with_signals} people with company relationships (from {total_people} total)
     </p>
 
     <div class="card">
         <div class="card-header">
-            Candidates by Availability Score
+            Startup Leaders by Value
         </div>
         <table>
-            <tr><th>Score</th><th>Person</th><th>Title</th><th>Company</th><th>Signals</th><th>Actions</th></tr>
+            <tr><th>Score</th><th>Name</th><th>Role</th><th>Company</th><th>Source</th><th>Signals</th><th>Actions</th></tr>
     """
 
-    for item in scored_candidates[:50]:
-        signals_html = ' '.join([f'<span class="tag tag-hot">{s}</span>' for s in item['signals']])
+    for item in scored_candidates[:100]:  # Show more candidates
+        signals_html = ' '.join([f'<span class="tag tag-hot">{s}</span>' for s in item['signals'][:3]])
         company_html = item['current_company'] or '-'
+        role_html = item['role'] or '-'
+        source_badge = '<span class="tag tag-funded">News</span>' if item['is_from_news'] else '<span class="tag" style="background: var(--gray-200);">SEC</span>'
 
-        # Get title from enrichment if available
-        enrichment = kg.get_enrichment(item['person'].id)
-        title = '-'
-        if enrichment:
-            for src, data in enrichment.items():
-                title = data.get('data', {}).get('current_title', '-')
-                if title != '-':
-                    break
-
-        import urllib.parse
         linkedin_url = f"https://www.linkedin.com/search/results/all/?keywords={urllib.parse.quote(item['person'].name)}"
 
         content += f"""
             <tr>
                 <td><strong style="color: var(--primary);">{item['score']}</strong></td>
                 <td><a href="/entity/{item['person'].id}">{item['person'].name}</a></td>
-                <td>{title}</td>
+                <td>{role_html}</td>
                 <td>{company_html}</td>
+                <td>{source_badge}</td>
                 <td>{signals_html}</td>
                 <td><a href="{linkedin_url}" target="_blank" class="btn btn-sm btn-secondary">LinkedIn</a></td>
             </tr>
         """
 
     if not scored_candidates:
-        content += '<tr><td colspan="6" class="empty-state">No candidates with signals yet. <a href="/pipeline">Run the pipeline</a> to extract entities from news.</td></tr>'
+        content += '<tr><td colspan="7" class="empty-state">No candidates yet. <a href="/pipeline">Run the pipeline</a> to extract entities.</td></tr>'
 
     content += '</table></div>'
 
-    return render(content, active='candidates', title_suffix='High-Value Candidates')
+    return render(content, active='candidates', title_suffix='Founders & Executives')
 
 
 @app.get("/entity/{entity_id}", response_class=HTMLResponse)

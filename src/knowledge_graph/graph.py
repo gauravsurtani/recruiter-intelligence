@@ -171,7 +171,7 @@ class KnowledgeGraph(KnowledgeGraphInterface):
                 return self._row_to_entity(row)
             return None
 
-    def search_entities(self, query: str, entity_type: str = None) -> List[GraphEntity]:
+    def search_entities(self, query: str, entity_type: str = None, limit: int = 1000) -> List[GraphEntity]:
         """Search entities by name pattern."""
         pattern = f"%{query.lower()}%"
 
@@ -181,7 +181,7 @@ class KnowledgeGraph(KnowledgeGraphInterface):
             if entity_type:
                 sql += " AND entity_type = ?"
                 params.append(entity_type)
-            sql += " ORDER BY mention_count DESC LIMIT 50"
+            sql += f" ORDER BY mention_count DESC LIMIT {limit}"
 
             cursor = conn.execute(sql, params)
             return [self._row_to_entity(row) for row in cursor.fetchall()]
